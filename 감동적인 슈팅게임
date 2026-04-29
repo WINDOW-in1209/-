@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultimate Emotional Shooter: Boss 1000 HP</title>
+<style>
+body{margin:0;overflow:hidden;background:black}
+canvas{display:block}
+#ui{position:fixed;top:10px;left:10px;color:white;font-family:Arial;font-size:18px}
+#start{position:fixed;width:100%;height:100%;background:black;color:white;display:flex;align-items:center;justify-content:center;font-size:30px;cursor:pointer;z-index:10}
+.message{position:fixed;font-weight:bold;text-shadow:0 0 20px gold;pointer-events:none;z-index:20;}
+</style>
+</head>
+<body>
+클릭하여 시작<br><small>마지막 전사 모드!</small>
+
+점수: 0<br>생명: 100000000
+
+<canvas id="game"></canvas>
+<script>
+const canvas=document.getElementById("game"),ctx=canvas.getContext("2d");
+function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;}
+resize();window.addEventListener("resize",resize);
+
+let gameStart=false;
+const start=document.getElementById("start");
+start.remove_17=()=>{
+   gameStart=true;
+   start.style.display="none";
+   updateLifeDisplay();
+   bgMusic.play();
+   spawnActionText("전투 시작!");
+};
+
+const player={x:0,y:0,speed:35};
+let bullets=[],missiles=[],enemies=[],explosions=[],boss=null,bossBullets=[],enemyMissiles=[],actionTexts=[];
+let score=0,life=100000000; // 플레이어 체력 1억
+const ultraScore=1000;
+const keys={};
+let spiralAngle=0;
+
+// Sounds
+const bgMusic=new Audio('bg-music.mp3');bgMusic.loop=true;
+const bossBgm=new Audio('boss-bgm.mp3');bossBgm.loop=true;
+const explosionSound=new Audio('explosion.mp3');
+const missileSound=new Audio('missile.mp3');
+const hitSound=new Audio('hit.mp3');
+
+function updateLifeDisplay(){document.getElementById("life").innerText=life;}
+updateLifeDisplay();
+
+// 액션 텍스트
+function spawnActionText(text){
+const el=document.createElement('div');
+el.className='message';
+el.style.left=Math.random()*(window.innerWidth-300)+'px';
+el.style.top=Math.random()*(window.innerHeight-150)+'px';
+const r=Math.floor(Math.random()*256);
+const g=Math.floor(Math.random()*256);
+const b=Math.floor(Math.random()*256);
+el.style.color=`rgb(${r},${g},${b})`;
+el.style.fontSize= (100 + Math.floor(Math.random()*20)) + 'px';
+el.innerText=text;
+document.body.appendChild(el);
+setTimeout(()=>el.remove(),2000);
+actionTexts.push(el);
+if(actionTexts.length>15) actionTexts.shift().remove();
+}
+
+// Controls
+window.addEventListener("keydown",e=>{
+   keys[e.key.toLowerCase()]=true;
+   spawnActionText("키 누름: "+e.key);
+   if(e.code==="Space"){
+      for(let i=0;i<3;i++){
+         missiles.push({x:player.x,y:player.y,size:40});
+         missileSound.play();
+         spawnActionText("미사일 발사!");
+      }
+   }
+});
+window.addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false; spawnActionText("키 뗌: "+e.key); });
+
+// Spiral bullets
+setInterval(()=>{
+if(!gameStart)return;
+const bulletsPerShot=200;
+spiralAngle+=0.05;
+for(let i=0;i<bulletsPerShot;i++){
+   const angle=(i/bulletsPerShot)*Math.PI*2+spiralAngle;
+   const radius=5+i*0.02;
+   bullets.push({x:player.x,y:player.y,dx:-Math.cos(angle)*(12+radius),dy:Math.sin(angle)*(12+radius),size:6,color:"yellow"});
+}
+if(bullets.length>2000) bullets.splice(0, bullets.length-2000);
+},80);
+
+// Enemy spawn
+setInterval(()=>{
+if(!gameStart)return;
+enemies.push({x:Math.random()*canvas.width,y:-20,speed:2+Math.random()*2,missileCooldown:Math.floor(Math.random()*120)});
+},700);
+
+// Boss spawn
+setInterval(()=>{
+if(gameStart && score>1000 && !boss){
+    boss={x:canvas.width/2, y:100, hp:1000, dir:3, pattern:0}; // 보스 체력 1000
+    hitSound.play();
+    spawnActionText("보스 등장! 끝판왕!");
+    bgMusic.pause(); bossBgm.play();
+}
+},2000);
+
+// Screen shake
+let shake=0;
+function applyShake(){
+if(shake>0){
+   const dx=(Math.random()-0.5)*shake;
+   const dy=(Math.random()-0.5)*shake;
+   ctx.translate(dx,dy);
+   shake-=1;
+}
+}
+
+function update(){
+if(!gameStart) return;
+if(life<=0){
+    spawnActionText("당신은 쓰러졌다...");
+    gameStart=false;
+    return;
+}
+
+if(player.x===0&&player.y===0){player.x=canvas.width/2;player.y=canvas.height-120;}
+if(keys["arrowleft"]||keys["a"]){player.x-=player.speed; spawnActionText("왼쪽 이동");}
+if(keys["arrowright"]||keys["d"]){player.x+=player.speed; spawnActionText("오른쪽 이동");}
+if(keys["arrowup"]||keys["w"]){player.y-=player.speed; spawnActionText("위 이동");}
+if(keys["arrowdown"]||keys["s"]){player.y+=player.speed; spawnActionText("아래 이동");}
+player.x=Math.max(20,Math.min(canvas.width-20,player.x));
+player.y=Math.max(20,Math.min(canvas.height-20,player.y));
+
+bullets.forEach(b=>{b.x+=b.dx;b.y+=b.dy});
+missiles.forEach(m=>m.y-=12);
+
+// Enemy + Missile
+enemies.forEach(e=>{
+    e.y+=e.speed;
+    if(e.missileCooldown>0) e.missileCooldown--;
+    else{
+       const angle=Math.atan2(player.y-e.y,player.x-e.x);
+       enemyMissiles.push({x:e.x,y:e.y,dx:Math.cos(angle)*5,dy:Math.sin(angle)*5,size:10,exploded:false});
+       e.missileCooldown=120;
+    }
+});
+
+enemyMissiles.forEach(m=>{
+    m.x+=m.dx; m.y+=m.dy;
+    if(Math.sqrt((m.x-player.x)**2+(m.y-player.y)**2)<25){
+       m.exploded=true;
+       life -= 100; // 적 공격력 100
+       updateLifeDisplay();
+       shake = 8;
+       explosions.push({x:m.x,y:m.y,size:30});
+       spawnActionText("피격! -100");
+    }
+});
+enemyMissiles=enemyMissiles.filter(m=>!m.exploded);
+
+// bullets vs enemies
+for(let i=bullets.length-1;i>=0;i--){
+   for(let j=enemies.length-1;j>=0;j--){
+    const dx=bullets[i].x-enemies[j].x,dy=bullets[i].y-enemies[j].y;
+    if(Math.sqrt(dx*dx+dy*dy)<30){
+     explosions.push({x:enemies[j].x,y:enemies[j].y,size:35});
+     bullets.splice(i,1);enemies.splice(j,1);
+     score+=ultraScore;document.getElementById("score").innerText=score;
+     spawnActionText("적 격파!");
+     explosionSound.play();shake=10;
+     break;
+    }
+   }
+}
+
+// Boss
+if(boss){
+    boss.x+=boss.dir;
+    if(boss.x<100||boss.x>canvas.width-100) boss.dir*=-1;
+    boss.pattern++;
+    if(boss.pattern%30===0){
+       const angle=Math.atan2(player.y-boss.y,player.x-boss.x);
+       bossBullets.push({x:boss.x,y:boss.y,dx:Math.cos(angle)*6,dy:Math.sin(angle)*6});
+       bossBullets.push({x:boss.x,y:boss.y,dx:Math.cos(angle+0.2)*6,dy:Math.sin(angle+0.2)*6});
+       bossBullets.push({x:boss.x,y:boss.y,dx:Math.cos(angle-0.2)*6,dy:Math.sin(angle-0.2)*6});
+    }
+
+    for(let i=bullets.length-1;i>=0;i--){
+       const dx=bullets[i].x-boss.x,dy=bullets[i].y-boss.y;
+       if(Math.sqrt(dx*dx+dy*dy)<70){bullets.splice(i,1);boss.hp--;explosionSound.play();shake=5;spawnActionText("보스 공격!");}
+    }
+    for(let i=missiles.length-1;i>=0;i--){
+       const dx=missiles[i].x-boss.x,dy=missiles[i].y-boss.y;
+       if(Math.sqrt(dx*dx+dy*dy)<120){explosions.push({x:missiles[i].x,y:missiles[i].y,size:200});missiles.splice(i,1);boss.hp-=80;explosionSound.play();shake=15;spawnActionText("보스 강력 타격!");}
+    }
+    if(boss.hp<=0){
+       explosions.push({x:boss.x,y:boss.y,size:250});
+       boss=null; score+=5000;document.getElementById("score").innerText=score;
+       shake=20;
+       spawnActionText("보스 격파! 세계가 구해졌다!");
+       bossBgm.pause(); bgMusic.play();
+    }
+}
+
+// Boss bullets vs player
+for(let i=bossBullets.length-1;i>=0;i--){
+    const b = bossBullets[i];
+    const dx = player.x - b.x, dy = player.y - b.y;
+    if(Math.sqrt(dx*dx + dy*dy) < 25){
+       bossBullets.splice(i,1);
+       life -= 100; // 보스 공격력 100
+       updateLifeDisplay();
+       shake = 8;
+       spawnActionText("보스 공격! -100");
+    } else {b.x+=b.dx; b.y+=b.dy;}
+}
+
+explosions.forEach(e=>e.size+=7);
+explosions=explosions.filter(e=>e.size<300);
+if(explosions.length>50) explosions.splice(0, explosions.length-50);
+}
+
+function draw(){
+ctx.save();applyShake();
+ctx.fillStyle="black";ctx.fillRect(0,0,canvas.width,canvas.height);
+
+if(life<=0){ctx.fillStyle="rgba(255,0,0,0.3)"; ctx.fillRect(0,0,canvas.width,canvas.height);}
+
+ctx.fillStyle="cyan";ctx.beginPath();ctx.moveTo(player.x,player.y-25);ctx.lineTo(player.x-25,player.y+25);ctx.lineTo(player.x+25,player.y+25);ctx.lineTo(player.x,player.y+10);ctx.closePath();ctx.fill();
+
+bullets.forEach(b=>{ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,b.size,0,Math.PI*2);ctx.fill();});
+enemies.forEach(e=>{ctx.fillStyle="red";ctx.fillRect(e.x-20,e.y-20,40,40);});
+missiles.forEach(m=>{ctx.fillStyle="lime";ctx.beginPath();ctx.arc(m.x,m.y,m.size,0,Math.PI*2);ctx.fill();});
+enemyMissiles.forEach(m=>{ctx.fillStyle="orange";ctx.beginPath();ctx.arc(m.x,m.y,m.size,0,Math.PI*2);ctx.fill();});
+if(boss){ctx.fillStyle="purple";ctx.fillRect(boss.x-120,boss.y-60,240,120); ctx.fillStyle="white";ctx.fillRect(boss.x-110,boss.y-80,(boss.hp/1000)*220,14);}
+bossBullets.forEach(b=>{ctx.fillStyle="pink";ctx.fillRect(b.x-6,b.y,12,16);});
+explosions.forEach(e=>{ctx.fillStyle=`rgba(255,${Math.floor(200*Math.random())},0,0.7)`;ctx.beginPath();ctx.arc(e.x,e.y,e.size,0,Math.PI*2);ctx.fill();});
+
+ctx.restore();
+}
+
+function loop(){update();draw();requestAnimationFrame(loop);}
+loop();
+</script>
+</body>
+</html>
